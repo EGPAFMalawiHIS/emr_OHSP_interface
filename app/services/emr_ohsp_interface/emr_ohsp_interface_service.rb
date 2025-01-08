@@ -131,19 +131,18 @@ module EmrOhspInterface
             sub_report[group] = {
               outpatient_cases: [],
               inpatient_cases: [],
-              inpatient_cases_death: []
+              inpatient_cases_death: [],
+              tested_malaria: [],
+              tested_positive_malaria: []
             }
           end
         end
 
-        lab_findings_struct = ['tested_cases', 'positive_cases'].each_with_object({}) do |indicator, report|
-          report[indicator] = ['<5 yrs','>=5 yrs'].each_with_object({}) do |group, sub_report|
-            sub_report[group] = []
-          end
-        end
+        admitted_patient_died = Proc.new do |patient|
+          visit_type = patient['visit_type']
+          dead = patient['dead']
 
-        patient_dead = Proc.new do |patient|
-          patient['dead'] == 1 ? true : false
+          visit_type == 'ADMISSION DIAGNOSIS' && dead
         end
 
 
@@ -174,17 +173,14 @@ module EmrOhspInterface
 
         malaria_tests = lab_results(test_types: ['Malaria Screening'], start_date: start_date, end_date: end_date)
 
-        malaria_tests.each do |patient|
-          patient_id = patient['patient_id']
-          birthdate = patient['birthdate']
+        tested_patient_ids = malaria_tests.map{|patient| patient['patient_id']}
 
-          if birthdate < 5.years.ago
-            lab_findings_struct['tested_cases']['>=5 yrs'] << patient_id
-            lab_findings_struct['positive_cases']['>=5 yrs'] << patient_id if ['Positive', 'parasites seen'].include?(patient['result'])
-          else
-            lab_findings_struct['tested_cases']['<5 yrs'] << patient_id
-            lab_findings_struct['positive_cases']['<5 yrs'] << patient_id if ['Positive', 'parasites seen'].include?(patient['result'])
-          end
+        tested_positive = Proc.new do |patient|
+          patient_id = patient['patient_id']
+          return false unless tested_patient_ids.include?(patient_id)
+
+          results = malaria_tests.find{|test| test['patient_id'] == patient_id}['results']
+          ['positive', 'parasites seen'].include?(results)
         end
 
         diagonised.each do |patient|
@@ -192,26 +188,21 @@ module EmrOhspInterface
           visit_type = patient['visit_type']
           patient_id = patient['patient_id']
           birthdate = patient['birthdate']
-          
-          if birthdate > 5.years.ago
-            report_struct[diagnosis]['<5 yrs'][:outpatient_cases] << patient_id if visit_type == 'OUTPATIENT DIAGNOSIS'
-            report_struct[diagnosis]['<5 yrs'][:inpatient_cases] << patient_id if visit_type == 'ADMISSION DIAGNOSIS'
-            if visit_type == 'ADMISSION DIAGNOSIS'
-              report_struct[diagnosis]['<5 yrs'][:inpatient_cases_death] << patient_id if patient_dead.call(patient)
-            end
-          else
-            report_struct[diagnosis]['>=5 yrs'][:outpatient_cases] << patient_id if visit_type == 'OUTPATIENT DIAGNOSIS'
-            report_struct[diagnosis]['>=5 yrs'][:inpatient_cases] << patient_id if visit_type == 'ADMISSION DIAGNOSIS'
-            if visit_type == 'ADMISSION DIAGNOSIS'  
-              report_struct[diagnosis]['>=5 yrs'][:inpatient_cases_death] << patient_id if patient_dead.call(patient)
-            end
-          end
-        end
 
-        {
-          diagnosis: report_struct,
-          malaria_cases: lab_findings_struct
-        }
+          five_plus = '>=5 yrs'
+          less_than_5 = '<5 yrs'
+
+          age_group = birthdate > 5.years.ago ? less_than_5 : five_plus
+          
+          report_struct[diagnosis][age_group][:outpatient_cases] << patient_id if visit_type == 'OUTPATIENT DIAGNOSIS'
+          report_struct[diagnosis][age_group][:inpatient_cases] << patient_id if visit_type == 'ADMISSION DIAGNOSIS'
+          report_struct[diagnosis][age_group][:tested_malaria] << patient_id if tested_patient_ids.include?(patient_id)
+          report_struct[diagnosis][age_group][:tested_positive_malaria] << patient_id if tested_positive.call(patient)
+          report_struct[diagnosis][age_group][:inpatient_cases_death] << patient_id if admitted_patient_died.call(patient)
+        end
+        
+        report_struct
+          
       end
 
       #idsr monthly report

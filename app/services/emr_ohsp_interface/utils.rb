@@ -7,8 +7,7 @@ module EmrOhspInterface
                 SELECT lab.patient_id,
                    tt.name,
                    COALESCE(result.value_numeric, result.value_text,
-                           result.value_coded) AS results,
-                   p.birthdate
+                           result.value_coded) AS results
                 FROM orders
                         INNER JOIN encounter lab ON lab.patient_id = orders.patient_id
                     AND lab.encounter_datetime >= '#{start_date}'
@@ -25,7 +24,6 @@ module EmrOhspInterface
                     AND tr.concept_id = #{ConceptName.find_by_name('Lab test result').concept_id}
                     AND tr.obs_group_id = test_type.obs_id
                         INNER JOIN obs result ON result.obs_group_id = tr.obs_id
-                        INNER JOIN person p ON p.person_id = lab.patient_id
                 GROUP BY lab.patient_id
               SQL
         end
