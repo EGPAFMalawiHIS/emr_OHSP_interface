@@ -6,6 +6,8 @@ module EmrOhspInterface
       require 'csv'
       require 'rest-client'
       require 'json'
+      include EmrOhspInterface::Utils
+
       def settings
         file = File.read(Rails.root.join("db","idsr_metadata","idsr_ohsp_settings.json"))
         config = JSON.parse(file)
@@ -100,6 +102,116 @@ module EmrOhspInterface
           end
           
         return collection
+      end
+
+      def generate_quarterly_idsr_report(request=nil,start_date=nil,end_date=nil)
+        epi_month = quarters_generator.first.first.strip
+        start_date = quarters_generator.first.last[1].split("to").first.strip if start_date.nil?
+        end_date =  quarters_generator.first.last[1].split("to").last.strip if end_date.nil?
+        indicators = [
+          'Diabetes Mellitus',
+          'Cervical Cancer',
+          'Hypertension',
+          'Onchocerciasis',
+          'Trachoma',
+          'Lymphatic Filariasis',
+          'Tuberculosis',
+          'Trypanosomiasis',
+          'Epilepsy',
+          'Depression',
+          'Suicide',
+          'Psychosis'
+        ]
+
+        diagnosis_concepts = ['Primary Diagnosis','Secondary Diagnosis']
+        encounters = ['OUTPATIENT DIAGNOSIS','ADMISSION DIAGNOSIS']
+
+        report_struct = indicators.each_with_object({}) do |indicator, report|
+          report[indicator] = ['<5 yrs','>=5 yrs'].each_with_object({}) do |group, sub_report|
+            sub_report[group] = {
+              outpatient_cases: [],
+              inpatient_cases: [],
+              inpatient_cases_death: []
+            }
+          end
+        end
+
+        lab_findings_struct = ['tested_cases', 'positive_cases'].each_with_object({}) do |indicator, report|
+          report[indicator] = ['<5 yrs','>=5 yrs'].each_with_object({}) do |group, sub_report|
+            sub_report[group] = []
+          end
+        end
+
+        patient_dead = Proc.new do |patient|
+          patient['dead'] == 1 ? true : false
+        end
+
+
+        diagonised = ActiveRecord::Base.connection.select_all <<~SQL
+          SELECT
+            e.patient_id,
+            p.birthdate,
+            d.name diagnosis,
+            et.name visit_type
+          FROM
+            encounter e
+          INNER JOIN
+            obs ON obs.encounter_id = e.encounter_id
+          INNER JOIN
+            person p ON p.person_id = e.patient_id
+          INNER JOIN concept_name d ON d.concept_id = obs.value_coded
+          INNER JOIN 
+            encounter_type et ON et.encounter_type_id = e.encounter_type
+          WHERE
+            e.encounter_type IN (#{EncounterType.where(name: encounters).pluck(:encounter_type_id).join(',')})
+            AND DATE(e.encounter_datetime) > '#{start_date}'
+            AND DATE(e.encounter_datetime) < '#{end_date}'
+            AND obs.concept_id IN (#{ConceptName.where(name: diagnosis_concepts).pluck(:concept_id).join(',')})
+            AND obs.value_coded IN (#{ConceptName.where(name: indicators).pluck(:concept_id).join(',')})
+          GROUP BY
+            p.person_id
+        SQL
+
+        malaria_tests = lab_results(test_types: ['Malaria Screening'], start_date: start_date, end_date: end_date)
+
+        malaria_tests.each do |patient|
+          patient_id = patient['patient_id']
+          birthdate = patient['birthdate']
+
+          if birthdate < 5.years.ago
+            lab_findings_struct['tested_cases']['>=5 yrs'] << patient_id
+            lab_findings_struct['positive_cases']['>=5 yrs'] << patient_id if ['Positive', 'parasites seen'].include?(patient['result'])
+          else
+            lab_findings_struct['tested_cases']['<5 yrs'] << patient_id
+            lab_findings_struct['positive_cases']['<5 yrs'] << patient_id if ['Positive', 'parasites seen'].include?(patient['result'])
+          end
+        end
+
+        diagonised.each do |patient|
+          diagnosis = patient['diagnosis']
+          visit_type = patient['visit_type']
+          patient_id = patient['patient_id']
+          birthdate = patient['birthdate']
+          
+          if birthdate > 5.years.ago
+            report_struct[diagnosis]['<5 yrs'][:outpatient_cases] << patient_id if visit_type == 'OUTPATIENT DIAGNOSIS'
+            report_struct[diagnosis]['<5 yrs'][:inpatient_cases] << patient_id if visit_type == 'ADMISSION DIAGNOSIS'
+            if visit_type == 'ADMISSION DIAGNOSIS'
+              report_struct[diagnosis]['<5 yrs'][:inpatient_cases_death] << patient_id if patient_dead.call(patient)
+            end
+          else
+            report_struct[diagnosis]['>=5 yrs'][:outpatient_cases] << patient_id if visit_type == 'OUTPATIENT DIAGNOSIS'
+            report_struct[diagnosis]['>=5 yrs'][:inpatient_cases] << patient_id if visit_type == 'ADMISSION DIAGNOSIS'
+            if visit_type == 'ADMISSION DIAGNOSIS'  
+              report_struct[diagnosis]['>=5 yrs'][:inpatient_cases_death] << patient_id if patient_dead.call(patient)
+            end
+          end
+        end
+
+        {
+          diagnosis: report_struct,
+          malaria_cases: lab_findings_struct
+        }
       end
 
       #idsr monthly report
@@ -630,6 +742,25 @@ module EmrOhspInterface
               count +=  1
           end
           return months.to_a
+      end
+
+      def quarters_generator
+        quarters = Hash.new
+
+        to_quarter = Proc.new do |date|
+          ((date.month - 1) / 3) + 1
+        end
+
+        init_quarter = Date.today.beginning_of_year - 2.years
+
+        while init_quarter <= Date.today do
+          quarter = init_quarter.strftime("%Y")+" Q"+to_quarter.call(init_quarter).to_s
+          dates = "#{(init_quarter.beginning_of_quarter).to_s} to #{(init_quarter.end_of_quarter).to_s}"
+          quarters[quarter] = dates
+          init_quarter = init_quarter + 3.months
+        end
+
+        return quarters.to_a
       end
 
       # helper menthod

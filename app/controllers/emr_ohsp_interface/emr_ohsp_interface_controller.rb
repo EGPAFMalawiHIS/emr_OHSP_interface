@@ -5,7 +5,15 @@ class EmrOhspInterface::EmrOhspInterfaceController < ::ApplicationController
 
     def months_generator
         render json: service.months_generator();
-    end  
+    end
+
+    def quarters_generator
+        render json: service.quarters_generator
+    end
+
+    def generate_quarterly_idsr_report
+        render json: service.generate_quarterly_idsr_report(params[:request],params[:start_date],params[:end_date]);
+    end
 
     def generate_weekly_idsr_report
         render json: service.generate_weekly_idsr_report(params[:request],params[:start_date],params[:end_date]);
