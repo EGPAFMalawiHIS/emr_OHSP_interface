@@ -127,7 +127,7 @@ module EmrOhspInterface
         encounters = ['OUTPATIENT DIAGNOSIS','ADMISSION DIAGNOSIS']
 
         report_struct = indicators.each_with_object({}) do |indicator, report|
-          report[indicator] = ['<5 yrs','>=5 yrs'].each_with_object({}) do |group, sub_report|
+          report[indicator.downcase] = ['<5 yrs','>=5 yrs'].each_with_object({}) do |group, sub_report|
             sub_report[group] = {
               outpatient_cases: [],
               inpatient_cases: [],
@@ -137,14 +137,6 @@ module EmrOhspInterface
             }
           end
         end
-
-        admitted_patient_died = Proc.new do |patient|
-          visit_type = patient['visit_type']
-          dead = patient['dead']
-
-          visit_type == 'ADMISSION DIAGNOSIS' && dead
-        end
-
 
         diagonised = ActiveRecord::Base.connection.select_all <<~SQL
           SELECT
@@ -168,23 +160,15 @@ module EmrOhspInterface
             AND obs.concept_id IN (#{ConceptName.where(name: diagnosis_concepts).pluck(:concept_id).join(',')})
             AND obs.value_coded IN (#{ConceptName.where(name: indicators).pluck(:concept_id).join(',')})
           GROUP BY
-            p.person_id
+            p.person_id, obs.concept_id
         SQL
 
         malaria_tests = lab_results(test_types: ['Malaria Screening'], start_date: start_date, end_date: end_date)
 
         tested_patient_ids = malaria_tests.map{|patient| patient['patient_id']}
 
-        tested_positive = Proc.new do |patient|
-          patient_id = patient['patient_id']
-          return false unless tested_patient_ids.include?(patient_id)
-
-          results = malaria_tests.find{|test| test['patient_id'] == patient_id}['results']
-          ['positive', 'parasites seen'].include?(results)
-        end
-
         diagonised.each do |patient|
-          diagnosis = patient['diagnosis']
+          diagnosis = patient['diagnosis']&.downcase
           visit_type = patient['visit_type']
           patient_id = patient['patient_id']
           birthdate = patient['birthdate']
@@ -197,12 +181,27 @@ module EmrOhspInterface
           report_struct[diagnosis][age_group][:outpatient_cases] << patient_id if visit_type == 'OUTPATIENT DIAGNOSIS'
           report_struct[diagnosis][age_group][:inpatient_cases] << patient_id if visit_type == 'ADMISSION DIAGNOSIS'
           report_struct[diagnosis][age_group][:tested_malaria] << patient_id if tested_patient_ids.include?(patient_id)
-          report_struct[diagnosis][age_group][:tested_positive_malaria] << patient_id if tested_positive.call(patient)
-          report_struct[diagnosis][age_group][:inpatient_cases_death] << patient_id if admitted_patient_died.call(patient)
+          report_struct[diagnosis][age_group][:tested_positive_malaria] << patient_id if tested_positive(tested_patient_ids, patient)
+          report_struct[diagnosis][age_group][:inpatient_cases_death] << patient_id if admitted_patient_died(patient)
         end
         
         report_struct
           
+      end
+
+      def tested_positive(ids, patient)
+        patient_id = patient['patient_id']
+        return false unless ids.include?(patient_id)
+
+        results = malaria_tests.find{|test| test['patient_id'] == patient_id}['results']
+        ['positive', 'parasites seen'].include?(results)
+      end
+
+      def admitted_patient_died(patient)
+        visit_type = patient['visit_type']
+        dead = patient['dead']
+
+        visit_type == 'ADMISSION DIAGNOSIS' && dead
       end
 
       #idsr monthly report
