@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    emr_ohsp_interface (2.2.0)
+    emr_ohsp_interface (3.0.0)
       rails (~> 8.0)
 
 GEM
