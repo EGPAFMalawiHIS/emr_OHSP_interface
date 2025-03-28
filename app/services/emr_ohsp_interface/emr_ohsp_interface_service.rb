@@ -184,7 +184,7 @@ module EmrOhspInterface
           results = malaria_tests.find {|test| test['patient_id'] == patient_id}['results']
           ['positive', 'parasites seen'].include?(results)
         end
-
+        
         diagonised.each do |patient|
           diagnosis = patient['diagnosis']
           visit_type = patient['visit_type']
@@ -201,10 +201,10 @@ module EmrOhspInterface
           report_struct[diagnosis][age_group][:tested_malaria] << patient_id if tested_patient_ids.include?(patient_id)
           report_struct[diagnosis][age_group][:tested_positive_malaria] << patient_id if tested_positive.call(patient)
           report_struct[diagnosis][age_group][:inpatient_cases_death] << patient_id if admitted_patient_died.call(patient)
+          debugger
         end
-        
+        debugger
         report_struct
-          
       end
 
       # idsr monthly report
@@ -265,8 +265,8 @@ module EmrOhspInterface
               preg = Observation.where(["concept_id = 6131 AND obs_datetime
                                          BETWEEN ? AND ? AND person_id IN(?)
                                           AND value_coded =1065",
-                                          start_date.to_date.strftime('%Y-%m-%d 00:00:00'),
-                                          end_date.to_date.strftime('%Y-%m-%d 23:59:59'), mal_patient_id ])
+                                        start_date.to_date.strftime('%Y-%m-%d 00:00:00'),
+                                        end_date.to_date.strftime('%Y-%m-%d 23:59:59'), mal_patient_id ])
 
                options['>=5yrs'] =   preg.collect {|record| record.person_id} rescue 0
                collection[key] = options
@@ -382,37 +382,35 @@ module EmrOhspInterface
         collection = {}
     
         special_indicators = ['Malaria - new cases (under 5)',
-          'Malaria - new cases (5 & over)',
-          'HIV confirmed positive (15-49 years) new cases',
-          'Diarrhoea non - bloody -new cases (under5)',
-          'Malnutrition - new case (under 5)',
-          'Acute respiratory infections - new cases (U5)'
-        ]
+                              'Malaria - new cases (5 & over)',
+                              'HIV confirmed positive (15-49 years) new cases',
+                              'Diarrhoea non - bloody -new cases (under5)',
+                              'Malnutrition - new case (under 5)',
+                              'Acute respiratory infections - new cases (U5)']
+        
+        def fetch_encounter_data(start_date, end_date, type_id, concept_ids)
+          Encounter.where('encounter_datetime BETWEEN ? AND ? 
+                          AND encounter_type = ? 
+                          AND value_coded IN (?)
+                          AND concept_id IN(6543, 6542) 
+                          AND encounter.site_id = ?',
+                          start_date, end_date, type_id, concept_ids, Location.current.location_id)
+                   .joins('INNER JOIN obs ON obs.encounter_id = encounter.encounter_id
+                            INNER JOIN person p ON p.person_id = encounter.patient_id')
+                   .select('encounter.encounter_type, obs.value_coded, p.*')
+        end
+
     
         diag_map.each do |key, value|
           options = {'ids'=>nil}
           concept_ids = ConceptName.where(name: value).collect {|cn| cn.concept_id}
     
           if !special_indicators.include?(key)
-            data = Encounter.where('encounter_datetime BETWEEN ? AND ?
-            AND encounter_type = ? AND value_coded IN (?)
-            AND concept_id IN(6543, 6542)',
-                                   start_date.to_date.strftime('%Y-%m-%d 00:00:00'),
-                                   end_date.to_date.strftime('%Y-%m-%d 23:59:59'), type.id, concept_ids)\
-                            .joins('INNER JOIN obs ON obs.encounter_id = encounter.encounter_id
-            INNER JOIN person p ON p.person_id = encounter.patient_id')\
-                            .select('encounter.encounter_type, obs.value_coded, p.*')
-    
-            # #under_five
-            # under_five = data.select{|record| calculate_age(record["birthdate"]) < 5}.\
-            #             collect{|record| record.person_id}
-            # options["<5yrs"] = under_five
-            # #above 5 years
-            # over_five = data.select{|record| calculate_age(record["birthdate"]) >=5 }.\
-            #             collect{|record| record.person_id}
-    
-            # options[">=5yrs"] =  over_five
-    
+            data = fetch_encounter_data(start_date.to_date.strftime('%Y-%m-%d 00:00:00'),
+                                        end_date.to_date.strftime('%Y-%m-%d 23:59:59'),
+                                        type.id,
+                                        concept_ids)
+              
             all = data.collect {|record| record.person_id}
     
     
@@ -421,14 +419,10 @@ module EmrOhspInterface
             collection[key] = options
           else
             if key.eql?('Malaria - new cases (under 5)')
-              data = Encounter.where('encounter_datetime BETWEEN ? AND ?
-              AND encounter_type = ? AND value_coded IN (?)
-              AND concept_id IN(6543, 6542)',
-                                     start_date.to_date.strftime('%Y-%m-%d 00:00:00'),
-                                     end_date.to_date.strftime('%Y-%m-%d 23:59:59'), type.id, concept_ids)\
-                              .joins('INNER JOIN obs ON obs.encounter_id = encounter.encounter_id
-              INNER JOIN person p ON p.person_id = encounter.patient_id')\
-                              .select('encounter.encounter_type, obs.value_coded, p.*')
+              data = fetch_encounter_data(start_date.to_date.strftime('%Y-%m-%d 00:00:00'),
+                                        end_date.to_date.strftime('%Y-%m-%d 23:59:59'),
+                                        type.id,
+                                        concept_ids)
     
               under_five = data.select {|record| calculate_age(record['birthdate']) < 5 }\
                                .collect {|record| record['person_id']}
@@ -439,14 +433,10 @@ module EmrOhspInterface
             end
     
             if key.eql?('Malaria - new cases (5 & over)')
-              data = Encounter.where('encounter_datetime BETWEEN ? AND ?
-              AND encounter_type = ? AND value_coded IN (?)
-              AND concept_id IN(6543, 6542)',
-                                     start_date.to_date.strftime('%Y-%m-%d 00:00:00'),
-                                     end_date.to_date.strftime('%Y-%m-%d 23:59:59'), type.id, concept_ids)\
-                              .joins('INNER JOIN obs ON obs.encounter_id = encounter.encounter_id
-              INNER JOIN person p ON p.person_id = encounter.patient_id')\
-                              .select('encounter.encounter_type, obs.value_coded, p.*')
+              data = fetch_encounter_data(start_date.to_date.strftime('%Y-%m-%d 00:00:00'),
+                                        end_date.to_date.strftime('%Y-%m-%d 23:59:59'),
+                                        type.id,
+                                        concept_ids)
     
               over_and_five = data.select {|record| calculate_age(record['birthdate'])  >= 5 }\
                                   .collect {|record| record['person_id']}
@@ -461,7 +451,8 @@ module EmrOhspInterface
                 "SELECT * FROM temp_earliest_start_date
                   WHERE date_enrolled BETWEEN '#{start_date}' AND '#{end_date}'
                   AND date_enrolled = earliest_start_date
-                  GROUP BY patient_id" ).to_hash
+                  AND site_id = #{Location.current.location_id}
+                  GROUP BY patient_id" ).to_a
     
               over_and_15_49 = data.select {|record| calculate_age(record['birthdate'])  >= 15 && calculate_age(record['birthdate']) <=49 }\
                                    .collect {|record| record['patient_id']}
@@ -472,14 +463,10 @@ module EmrOhspInterface
             end
 
             if key.eql?('Diarrhoea non - bloody -new cases (under5)')
-              data = Encounter.where('encounter_datetime BETWEEN ? AND ?
-              AND encounter_type = ? AND value_coded IN (?)
-              AND concept_id IN(6543, 6542)',
-                                     start_date.to_date.strftime('%Y-%m-%d 00:00:00'),
-                                     end_date.to_date.strftime('%Y-%m-%d 23:59:59'), type.id, concept_ids)\
-                              .joins('INNER JOIN obs ON obs.encounter_id = encounter.encounter_id
-              INNER JOIN person p ON p.person_id = encounter.patient_id')\
-                              .select('encounter.encounter_type, obs.value_coded, p.*')
+              data = fetch_encounter_data(start_date.to_date.strftime('%Y-%m-%d 00:00:00'),
+                                        end_date.to_date.strftime('%Y-%m-%d 23:59:59'),
+                                        type.id,
+                                        concept_ids)
     
               under_five = data.select {|record| calculate_age(record['birthdate']) < 5 }\
                                .collect {|record| record['person_id']}
@@ -490,14 +477,10 @@ module EmrOhspInterface
             end
 
             if key.eql?('Malnutrition - new case (under 5)')
-              data = Encounter.where('encounter_datetime BETWEEN ? AND ?
-              AND encounter_type = ? AND value_coded IN (?)
-              AND concept_id IN(6543, 6542)',
-                                     start_date.to_date.strftime('%Y-%m-%d 00:00:00'),
-                                     end_date.to_date.strftime('%Y-%m-%d 23:59:59'), type.id, concept_ids)\
-                              .joins('INNER JOIN obs ON obs.encounter_id = encounter.encounter_id
-              INNER JOIN person p ON p.person_id = encounter.patient_id')\
-                              .select('encounter.encounter_type, obs.value_coded, p.*')
+              data = fetch_encounter_data(start_date.to_date.strftime('%Y-%m-%d 00:00:00'),
+                                        end_date.to_date.strftime('%Y-%m-%d 23:59:59'),
+                                        type.id,
+                                        concept_ids)
     
               under_five = data.select {|record| calculate_age(record['birthdate']) < 5 }\
                                .collect {|record| record['person_id']}
@@ -508,15 +491,10 @@ module EmrOhspInterface
             end
 
             if key.eql?('Acute respiratory infections - new cases (U5)')
-              data = Encounter.where('encounter_datetime BETWEEN ? AND ?
-              AND encounter_type = ? AND value_coded IN (?)
-              AND concept_id IN(6543, 6542)',
-                                     start_date.to_date.strftime('%Y-%m-%d 00:00:00'),
-                                     end_date.to_date.strftime('%Y-%m-%d 23:59:59'), type.id, concept_ids)\
-                              .joins('INNER JOIN obs ON obs.encounter_id = encounter.encounter_id
-              INNER JOIN person p ON p.person_id = encounter.patient_id')\
-                              .select('encounter.encounter_type, obs.value_coded, p.*')
-    
+              data = fetch_encounter_data(start_date.to_date.strftime('%Y-%m-%d 00:00:00'),
+                                        end_date.to_date.strftime('%Y-%m-%d 23:59:59'),
+                                        type.id,
+                                        concept_ids)
               under_five = data.select {|record| calculate_age(record['birthdate']) < 5 }\
                                .collect {|record| record['person_id']}
     
@@ -738,7 +716,7 @@ module EmrOhspInterface
           while count < 13 do
               curr_date = curr_date - 1.month
               months[curr_date.strftime('%Y%m')] = [curr_date.strftime('%B-%Y'),\
-                                        (curr_date.beginning_of_month.to_s+' to ' + curr_date.end_of_month.to_s)]
+                                                    (curr_date.beginning_of_month.to_s+' to ' + curr_date.end_of_month.to_s)]
               count +=  1
           end
           return months.to_a
@@ -814,7 +792,7 @@ module EmrOhspInterface
           'dataValues'=> []
         }
          special = ['Severe Pneumonia in under 5 cases', 'Malaria in Pregnancy',
-                   'Underweight Newborns < 2500g in Under 5 Cases', 'Diarrhoea In Under 5']
+                    'Underweight Newborns < 2500g in Under 5 Cases', 'Diarrhoea In Under 5']
 
         data.each do |key, value|
           if !special.include?(key)
