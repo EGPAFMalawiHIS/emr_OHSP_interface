@@ -24,6 +24,7 @@ module EmrOhspInterface
                     AND tr.concept_id = #{ConceptName.find_by_name('Lab test result').concept_id}
                     AND tr.obs_group_id = test_type.obs_id
                         INNER JOIN obs result ON result.obs_group_id = tr.obs_id
+                WHERE orders.site_id = #{Location.current.location_id}
                 GROUP BY lab.patient_id
               SQL
         end
