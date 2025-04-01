@@ -21,7 +21,7 @@ module EmrOhspInterface
         file = File.open(Rails.root.join('db', 'idsr_metadata', 'emr_ohsp_facility_map.csv'))
         data = CSV.parse(file, headers: true)
         emr_facility_id = Location.current_health_center.id
-        facility = data.select {|row| row['EMR_Facility_ID'].to_i == emr_facility_id}
+        facility = data.select { |row| row['EMR_Facility_ID'].to_i == emr_facility_id }
         ohsp_id = facility[0]['OrgUnit ID']
       end
 
@@ -37,7 +37,7 @@ module EmrOhspInterface
         file = File.open(Rails.root.join('db', 'idsr_metadata', 'idsr_monthly_ohsp_ids.csv'))
         end
         data = CSV.parse(file, headers: true)
-        row = data.select {|row| row['Data Element Name'].strip.downcase.eql?(de.downcase.strip)}
+        row = data.select { |row| row['Data Element Name'].strip.downcase.eql?(de.downcase.strip) }
         ohsp_ds_id = row[0]['Data Set ID']
         result << ohsp_ds_id
         ohsp_de_id = row[0]['UID']
@@ -75,7 +75,7 @@ module EmrOhspInterface
 
         diag_map.each do |key, value|
           options = {'<5yrs'=>nil, '>=5yrs'=>nil}
-          concept_ids = ConceptName.where(name: value).collect {|cn| cn.concept_id}
+          concept_ids = ConceptName.where(name: value).collect { |cn| cn.concept_id }
 
           data = Encounter.where('encounter_datetime BETWEEN ? AND ?
           AND encounter_type = ? AND value_coded IN (?)
@@ -87,20 +87,18 @@ module EmrOhspInterface
                           .select('encounter.encounter_type, obs.value_coded, p.*')
 
           # under_five
-          under_five = data.select {|record| calculate_age(record['birthdate']) < 5}
-                           .collect {|record| record.person_id}
+          under_five = data.select { |record| calculate_age(record['birthdate']) < 5 }
+                           .collect { |record| record.person_id }
           options['<5yrs'] = under_five
           # above 5 years
-          over_five = data.select {|record| calculate_age(record['birthdate']) >=5 }
-                          .collect {|record| record.person_id}
+          over_five = data.select { |record| calculate_age(record['birthdate']) >=5 }
+                          .collect { |record| record.person_id }
 
           options['>=5yrs'] = over_five
 
           collection[key] = options
         end
-          if request == nil
-           response = send_data(collection, 'weekly')
-          end
+          response = send_data(collection, 'weekly') if request == nil
           
         return collection
       end
@@ -175,34 +173,36 @@ module EmrOhspInterface
 
         malaria_tests = lab_results(test_types: ['Malaria Screening'], start_date: start_date, end_date: end_date)
 
-        tested_patient_ids = malaria_tests.map {|patient| patient['patient_id']}
+        tested_patient_ids = malaria_tests.map { |patient| patient['patient_id'] }
 
         tested_positive = lambda do |patient|
           patient_id = patient['patient_id']
           return false unless tested_patient_ids.include?(patient_id)
           
-          results = malaria_tests.find {|test| test['patient_id'] == patient_id}['results']
+          results = malaria_tests.find { |test| test['patient_id'] == patient_id }['results']
           ['positive', 'parasites seen'].include?(results)
         end
-        
-        diagonised.each do |patient|
-          diagnosis = patient['diagnosis']
-          visit_type = patient['visit_type']
-          patient_id = patient['patient_id']
-          birthdate = patient['birthdate']
+          diagonised.each do |patient|
+            diagnosis = patient['diagnosis'].titleize
+            visit_type = patient['visit_type']
+            patient_id = patient['patient_id']
+            birthdate = patient['birthdate']
 
-          five_plus = '>=5 yrs'
-          less_than_5 = '<5 yrs'
+            five_plus = '>=5 yrs'
+            less_than_5 = '<5 yrs'
 
-          age_group = birthdate > 5.years.ago ? less_than_5 : five_plus
+            age_group = birthdate > 5.years.ago ? less_than_5 : five_plus
           
-          report_struct[diagnosis][age_group][:outpatient_cases] << patient_id if visit_type == 'OUTPATIENT DIAGNOSIS'
-          report_struct[diagnosis][age_group][:inpatient_cases] << patient_id if visit_type == 'ADMISSION DIAGNOSIS'
-          report_struct[diagnosis][age_group][:tested_malaria] << patient_id if tested_patient_ids.include?(patient_id)
-          report_struct[diagnosis][age_group][:tested_positive_malaria] << patient_id if tested_positive.call(patient)
-          report_struct[diagnosis][age_group][:inpatient_cases_death] << patient_id if admitted_patient_died.call(patient)
-        end
-        
+            report_struct[diagnosis][age_group][:outpatient_cases] << patient_id if visit_type == 'OUTPATIENT DIAGNOSIS'
+            report_struct[diagnosis][age_group][:inpatient_cases] << patient_id if visit_type == 'ADMISSION DIAGNOSIS'
+            if tested_patient_ids.include?(patient_id)
+              report_struct[diagnosis][age_group][:tested_malaria] << patient_id
+            end
+            report_struct[diagnosis][age_group][:tested_positive_malaria] << patient_id if tested_positive.call(patient)
+            if admitted_patient_died.call(patient)
+              report_struct[diagnosis][age_group][:inpatient_cases_death] << patient_id
+            end
+          end
         report_struct
       end
 
@@ -224,7 +224,7 @@ module EmrOhspInterface
 
         diag_map.each do |key, value|
           options = {'<5yrs'=>nil, '>=5yrs'=>nil}
-          concept_ids = ConceptName.where(name: value).collect {|cn| cn.concept_id}
+          concept_ids = ConceptName.where(name: value).collect { |cn| cn.concept_id }
           if !special_indicators.include?(key)
               data = Encounter.where('encounter_datetime BETWEEN ? AND ?
               AND encounter_type = ? AND value_coded IN (?)
@@ -237,12 +237,12 @@ module EmrOhspInterface
                               .select('encounter.encounter_type, obs.value_coded, p.*')
 
               # under_five
-              under_five = data.select {|record| calculate_age(record['birthdate']) < 5}\
-                               .collect {|record| record.person_id}.uniq
+              under_five = data.select { |record| calculate_age(record['birthdate']) < 5 }\
+                               .collect { |record| record.person_id }.uniq
               options['<5yrs'] = under_five
               # above 5 years
-              over_five = data.select {|record| calculate_age(record['birthdate']) >=5 }\
-                              .collect {|record| record.person_id}.uniq
+              over_five = data.select { |record| calculate_age(record['birthdate']) >=5 }\
+                              .collect { |record| record.person_id }.uniq
 
               options['>=5yrs'] = over_five
 
@@ -259,7 +259,7 @@ module EmrOhspInterface
               INNER JOIN person p ON p.person_id = encounter.patient_id')\
                                         .select('encounter.encounter_type, obs.value_coded, p.*')
 
-              mal_patient_id=   mal_patient_id.collect {|record| record.person_id}
+              mal_patient_id=   mal_patient_id.collect { |record| record.person_id }
               # find those that are pregnant
               preg = Observation.where(["concept_id = 6131 AND obs_datetime
                                          BETWEEN ? AND ? AND person_id IN(?)
@@ -267,7 +267,7 @@ module EmrOhspInterface
                                         start_date.to_date.strftime('%Y-%m-%d 00:00:00'),
                                         end_date.to_date.strftime('%Y-%m-%d 23:59:59'), mal_patient_id ])
 
-               options['>=5yrs'] = preg.collect {|record| record.person_id} rescue 0
+               options['>=5yrs'] = preg.collect { |record| record.person_id } rescue 0
                collection[key] = options
             end
 
@@ -279,11 +279,11 @@ module EmrOhspInterface
                             AND site_id = #{Location.current.location_id}
                              GROUP BY patient_id" ).to_a
 
-              under_five = data.select {|record| calculate_age(record['birthdate']) < 5 }\
-                               .collect {|record| record['patient_id']}
+              under_five = data.select { |record| calculate_age(record['birthdate']) < 5 }\
+                               .collect { |record| record['patient_id'] }
 
-              over_five = data.select {|record| calculate_age(record['birthdate']) >=5 }\
-                              .collect {|record| record['patient_id']}
+              over_five = data.select { |record| calculate_age(record['birthdate']) >=5 }\
+                              .collect { |record| record['patient_id'] }
 
               options['<5yrs'] = under_five
               options['>=5yrs'] = over_five
@@ -298,8 +298,8 @@ module EmrOhspInterface
                                         concept_ids)
 
               # under_five
-              under_five = data.select {|record| calculate_age(record['birthdate']) < 5}\
-                               .collect {|record| record.person_id}
+              under_five = data.select { |record| calculate_age(record['birthdate']) < 5 }\
+                               .collect { |record| record.person_id }
               options['<5yrs'] = under_five
               collection[key] = options
             end
@@ -312,8 +312,8 @@ module EmrOhspInterface
                                         concept_ids)
 
               # under_five
-              under_five = data.select {|record| calculate_age(record['birthdate']) < 5}\
-                               .collect {|record| record.person_id}
+              under_five = data.select { |record| calculate_age(record['birthdate']) < 5 }\
+                               .collect { |record| record.person_id }
               options['<5yrs'] = under_five
               collection[key] = options
             end
@@ -326,8 +326,8 @@ module EmrOhspInterface
                                         concept_ids)
 
               # under_five
-              under_five = data.select {|record| calculate_age(record['birthdate']) < 5}\
-                               .collect {|record| record.person_id}
+              under_five = data.select { |record| calculate_age(record['birthdate']) < 5 }\
+                               .collect { |record| record.person_id }
               options['<5yrs'] = under_five
               collection[key] = options
             end
@@ -339,16 +339,14 @@ module EmrOhspInterface
                                         concept_ids)
 
               # under_five
-              under_five = data.select {|record| calculate_age(record['birthdate']) < 5}\
-                               .collect {|record| record.person_id}
+              under_five = data.select { |record| calculate_age(record['birthdate']) < 5 }\
+                               .collect { |record| record.person_id }
               options['<5yrs'] = under_five
               collection[key] = options
             end
           end
         end
-          if request == nil
-           response = send_data(collection, 'monthly')
-          end
+          response = send_data(collection, 'monthly') if request == nil
         return collection
       end
 
@@ -381,7 +379,7 @@ module EmrOhspInterface
     
         diag_map.each do |key, value|
           options = {'ids'=>nil}
-          concept_ids = ConceptName.where(name: value).collect {|cn| cn.concept_id}
+          concept_ids = ConceptName.where(name: value).collect { |cn| cn.concept_id }
     
           if !special_indicators.include?(key)
             data = fetch_encounter_data(start_date.to_date.strftime('%Y-%m-%d 00:00:00'),
@@ -389,7 +387,7 @@ module EmrOhspInterface
                                         type.id,
                                         concept_ids)
               
-            all = data.collect {|record| record.person_id}
+            all = data.collect { |record| record.person_id }
     
     
             options['ids'] = all
@@ -402,8 +400,8 @@ module EmrOhspInterface
                                           type.id,
                                           concept_ids)
     
-              under_five = data.select {|record| calculate_age(record['birthdate']) < 5 }\
-                               .collect {|record| record['person_id']}
+              under_five = data.select { |record| calculate_age(record['birthdate']) < 5 }\
+                               .collect { |record| record['person_id'] }
     
               options['ids'] = under_five
     
@@ -416,8 +414,8 @@ module EmrOhspInterface
                                           type.id,
                                           concept_ids)
     
-              over_and_five = data.select {|record| calculate_age(record['birthdate']) >= 5 }\
-                                  .collect {|record| record['person_id']}
+              over_and_five = data.select { |record| calculate_age(record['birthdate']) >= 5 }\
+                                  .collect { |record| record['person_id'] }
     
               options['ids'] = over_and_five
     
@@ -432,8 +430,8 @@ module EmrOhspInterface
                   AND site_id = #{Location.current.location_id}
                   GROUP BY patient_id" ).to_a
     
-              over_and_15_49 = data.select {|record| calculate_age(record['birthdate']) >= 15 && calculate_age(record['birthdate']) <=49 }\
-                                   .collect {|record| record['patient_id']}
+              over_and_15_49 = data.select { |record| calculate_age(record['birthdate']) >= 15 && calculate_age(record['birthdate']) <=49 }\
+                                   .collect { |record| record['patient_id'] }
     
               options['ids'] = over_and_15_49
     
@@ -446,8 +444,8 @@ module EmrOhspInterface
                                           type.id,
                                           concept_ids)
     
-              under_five = data.select {|record| calculate_age(record['birthdate']) < 5 }\
-                               .collect {|record| record['person_id']}
+              under_five = data.select { |record| calculate_age(record['birthdate']) < 5 }\
+                               .collect { |record| record['person_id'] }
     
               options['ids'] = under_five
 
@@ -460,8 +458,8 @@ module EmrOhspInterface
                                           type.id,
                                           concept_ids)
     
-              under_five = data.select {|record| calculate_age(record['birthdate']) < 5 }\
-                               .collect {|record| record['person_id']}
+              under_five = data.select { |record| calculate_age(record['birthdate']) < 5 }\
+                               .collect { |record| record['person_id'] }
     
               options['ids'] = under_five
 
@@ -473,8 +471,8 @@ module EmrOhspInterface
                                           end_date.to_date.strftime('%Y-%m-%d 23:59:59'),
                                           type.id,
                                           concept_ids)
-              under_five = data.select {|record| calculate_age(record['birthdate']) < 5 }\
-                               .collect {|record| record['person_id']}
+              under_five = data.select { |record| calculate_age(record['birthdate']) < 5 }\
+                               .collect { |record| record['person_id'] }
     
               options['ids'] = under_five
 
@@ -498,12 +496,12 @@ module EmrOhspInterface
                         .select('encounter.encounter_type, obs.value_coded, p.*')
 
         if disaggregate_key == 'less'
-        options['ids'] = data.select {|record| calculate_age(record['birthdate']) < 5 }\
-                             .collect {|record| record['person_id']}
+        options['ids'] = data.select { |record| calculate_age(record['birthdate']) < 5 }\
+                             .collect { |record| record['person_id'] }
         else 
           if disaggregate_key == 'greater'
-            options['ids'] = data.select {|record| calculate_age(record['birthdate']) >= 5 }\
-                                 .collect {|record| record['person_id']}
+            options['ids'] = data.select { |record| calculate_age(record['birthdate']) >= 5 }\
+                                 .collect { |record| record['person_id'] }
           end
         end
 
@@ -536,7 +534,7 @@ module EmrOhspInterface
 
         diag_map.each do |key, value|
           options = {'ids'=>nil}
-          concept_ids = ConceptName.where(name: value).collect {|cn| cn.concept_id}
+          concept_ids = ConceptName.where(name: value).collect { |cn| cn.concept_id }
     
           if !special_indicators.include?(key) && !special_under_five_indicators.include?(key)
             data = Encounter.where('encounter_datetime BETWEEN ? AND ?
@@ -548,7 +546,7 @@ module EmrOhspInterface
             INNER JOIN person p ON p.person_id = encounter.patient_id')\
                             .select('encounter.encounter_type, obs.value_coded, p.*')
     
-            all = data.collect {|record| record.person_id}
+            all = data.collect { |record| record.person_id }
     
     
             options['ids'] = all
@@ -569,7 +567,7 @@ module EmrOhspInterface
                               .select('encounter.encounter_type, obs.value_coded, obs.obs_datetime, p.*, c.name visit_type')\
                               .group('p.person_id, encounter.encounter_id')
 
-              all = data.collect {|record| record.person_id}
+              all = data.collect { |record| record.person_id }
     
               options['ids'] = all
       
@@ -586,7 +584,7 @@ module EmrOhspInterface
                   AND '" + end_date.to_date.strftime('%Y-%m-%d 23:59:59') + "'
                   AND program_id ='" + programID.program_id.to_s + "'
                 GROUP BY enc_date"
-              ).map {|e| e. patient_id}
+              ).map { |e| e. patient_id }
         
               options['ids'] = data
               collection[key] = options
@@ -598,7 +596,7 @@ module EmrOhspInterface
                                        end_date.to_date.strftime('%Y-%m-%d 23:59:59'), '7414')\
                                 .joins('LEFT JOIN location l ON l.location_id = obs.value_text')\
                                 .select('obs.person_id').order('obs_datetime DESC')
-              all = data.collect {|record| record.person_id}
+              all = data.collect { |record| record.person_id }
               options['ids'] = all
               collection[key] = options
             end
@@ -609,7 +607,7 @@ module EmrOhspInterface
                 WHERE date_enrolled BETWEEN '#{start_date}' AND '#{end_date}'
                 AND date_enrolled = earliest_start_date
                 GROUP BY patient_id" ).to_hash
-              all = data.collect {|record| record['patient_id']}
+              all = data.collect { |record| record['patient_id'] }
               options['ids'] = all
               collection[key] = options
             end
@@ -657,7 +655,7 @@ module EmrOhspInterface
 
         diag_map.each do |key, value|
           options = {'<5yrs'=>nil, '>=5yrs'=>nil}
-          concept_ids = ConceptName.where(name: value).collect {|cn| cn.concept_id}
+          concept_ids = ConceptName.where(name: value).collect { |cn| cn.concept_id }
 
           data = Encounter.where('encounter_datetime BETWEEN ? AND ?
           AND encounter_type = ? AND value_coded IN (?)
@@ -669,12 +667,12 @@ module EmrOhspInterface
                           .select('encounter.encounter_type, obs.value_coded, p.*')
 
           # under_five
-          under_five = data.select {|record| calculate_age(record['birthdate']) < 5}\
-                           .collect {|record| record.person_id}
+          under_five = data.select { |record| calculate_age(record['birthdate']) < 5 }\
+                           .collect { |record| record.person_id }
           options['<5yrs'] = under_five
           # above 5 years
-          over_five = data.select {|record| calculate_age(record['birthdate']) >=5 }\
-                          .collect {|record| record.person_id}
+          over_five = data.select { |record| calculate_age(record['birthdate']) >=5 }\
+                          .collect { |record| record.person_id }
 
           options['>=5yrs'] = over_five
 
@@ -749,7 +747,7 @@ module EmrOhspInterface
         end
       # remove the last week
       this_wk = (Date.today.year).to_s+'W'+(Date.today.cweek).to_s
-      weeks = weeks.delete_if {|key, value| key==this_wk}
+      weeks = weeks.delete_if { |key, value| key==this_wk }
 
       return weeks.to_a
       end
@@ -832,7 +830,7 @@ module EmrOhspInterface
 
       def send_data_to_sms_portal(data, concept_name_collection)
         conn2 = server_config['idsr_sms']
-        data = data.select {|k, v| v.select {|kk, vv| vv.length > 0}.length > 0}
+        data = data.select { |k, v| v.select { |kk, vv| vv.length > 0 }.length > 0 }
         payload = {
           'email'=> conn2['username'],
           'password' => conn2['password'],
@@ -851,15 +849,11 @@ module EmrOhspInterface
                                                  payload: payload.to_json
           )
         rescue RestClient::ExceptionWithResponse => res
-          if res.class == RestClient::Forbidden
-            puts "error: #{res.class}"
-          end
+          puts "error: #{res.class}" if res.class == RestClient::Forbidden
         end
       
         if response.class != NilClass
-          if response.code == 200
-            puts "success: #{response}"
-          end
+          puts "success: #{response}" if response.code == 200
         end
         
       end
